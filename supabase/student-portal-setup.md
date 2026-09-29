@@ -16,6 +16,7 @@ supabase link --project-ref YOUR_PROJECT_REF
 supabase functions deploy provision-student-accounts
 supabase functions deploy change-student-password
 supabase functions deploy send-student-push
+supabase functions deploy reset-student-password
 ```
 
 Supabase provides `SUPABASE_URL` and the API keys to Edge Functions automatically. Current projects expose keys as JSON maps named `SUPABASE_PUBLISHABLE_KEYS` and `SUPABASE_SECRET_KEYS`; the functions select the `default` key and also support the legacy `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` variables. Do not manually add these platform-reserved `SUPABASE_` variables as function secrets. Only add the VAPID secrets in the next step.
@@ -43,5 +44,7 @@ Sign in as staff, open **นักเรียน**, and select **สร้า�
 ## 5. Student access and notifications
 
 Students can view their pending, submitted, and checked work, upload a file or send a text note, review scores/comments, and display their QR code for physical hand-in. Files are stored in the private `student-submissions` bucket, with a 25 MB maximum.
+
+Staff can reset a linked student's temporary password to the student code or set a temporary password of their choice from the student list. Supabase Auth does not reveal existing passwords; each reset marks the student to choose a new password (at least 8 characters) at next sign-in.
 
 Students must allow notifications on each device/browser. Web Push can notify an installed PWA while it is closed when the browser and operating system support Push. App-selected alert sounds and volume apply while StudentSend is open; closed-app push sound is controlled by device/browser settings.

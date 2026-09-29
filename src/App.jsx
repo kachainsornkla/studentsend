@@ -100,6 +100,7 @@ export default function App() {
   const [toast, setToast] = useState('')
   const [modal, setModal] = useState(null)
   const [record, setRecord] = useState(null)
+  const [passwordStudent, setPasswordStudent] = useState(null)
   const [mode, setMode] = useState('assignment-first')
   const [activeAssignment, setActiveAssignment] = useState('')
   const [scanStudent, setScanStudent] = useState(null)
@@ -189,6 +190,15 @@ export default function App() {
       notify(`สร้างบัญชีแล้ว ${created} คน${skipped ? ` · ข้าม ${skipped}` : ''}${errors.length ? ` · ผิดพลาด ${errors.length}: ${details}` : ''} · รหัสผ่านเริ่มต้นคือรหัสนักเรียน`)
     } catch (error) { notify(`สร้างบัญชีไม่สำเร็จ: ${msg(error)}`) }
     finally { setBusy(false) }
+  }
+
+  async function resetStudentPassword(student, mode, password) {
+    const { error } = await supabase.functions.invoke('reset-student-password', {
+      body: { student_id: student.id, mode, ...(mode === 'custom' ? { password } : {}) },
+    })
+    if (error) throw error
+    setPasswordStudent(null)
+    notify(`ตั้งรหัสชั่วคราวให้ ${student.student_name} แล้ว · นักเรียนต้องเปลี่ยนรหัสหลังเข้าสู่ระบบ`)
   }
 
   async function changeStudentPassword(password) {
@@ -360,7 +370,7 @@ export default function App() {
       <header className="topbar"><button className="mr-3 rounded p-2 md:hidden" onClick={() => setMenuOpen(true)}>☰</button><div><span className="eyebrow">CLASSROOM MANAGEMENT</span><strong>{{ dashboard: 'ภาพรวม', students: 'นักเรียน', assignments: 'งานและ QR', scanner: 'สแกนรับงาน', reports: 'รายงานและตรวจ' }[page]}</strong></div><span className="text-xs text-slate-500">{new Date().toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</span></header>
       <div className="content">
         {page === 'dashboard' && <Dashboard stats={dashboard} assignments={assignments.filter(a => a.status === 'active')} submissions={submissions} busy={busy} go={changePage} />}
-        {page === 'students' && <Students rows={filteredStudents} search={search} setSearch={setSearch} add={() => { setRecord(null); setModal('student') }} bulkImport={() => setStudentImportOpen(true)} provision={provisionStudentAccounts} busy={busy} edit={s => { setRecord(s); setModal('student') }} remove={s => removeRow('students', s)} />}
+        {page === 'students' && <Students rows={filteredStudents} search={search} setSearch={setSearch} add={() => { setRecord(null); setModal('student') }} bulkImport={() => setStudentImportOpen(true)} provision={provisionStudentAccounts} busy={busy} edit={s => { setRecord(s); setModal('student') }} resetPassword={setPasswordStudent} remove={s => removeRow('students', s)} />}
         {page === 'assignments' && <Assignments rows={filteredAssignments} search={search} setSearch={setSearch} add={() => { setRecord(null); setModal('assignment') }} edit={a => { setRecord(a); setModal('assignment') }} remove={a => removeRow('assignments', a)} />}
         {page === 'scanner' && <Scanner mode={mode} setMode={m => { setMode(m); resetPair() }} assignments={assignments.filter(a => a.status === 'active')} selected={activeAssignment} setSelected={setActiveAssignment} student={scanStudent} assignment={scanAssignment} duplicate={duplicate} receive={receiveSubmission} reset={resetPair} readerRef={readerRef} cameraOn={cameraOn} start={startCamera} stop={stopCamera} error={cameraError} />}
         {page === 'reports' && <Reports rows={filteredSubmissions} search={search} setSearch={setSearch} assignmentFilter={assignmentFilter} setAssignmentFilter={setAssignmentFilter} statusFilter={statusFilter} setStatusFilter={setStatusFilter} assignments={assignments} edit={s => { setRecord(s); setModal('grade') }} />}
@@ -368,6 +378,7 @@ export default function App() {
     </main>
     {modal && <Editor type={modal} record={record} close={() => setModal(null)} save={modal === 'student' ? saveStudent : modal === 'assignment' ? saveAssignment : saveGrade} />}
     {studentImportOpen && <BulkStudentImport existingStudents={students} close={() => setStudentImportOpen(false)} onImport={importStudents} />}
+    {passwordStudent && <StudentPasswordReset student={passwordStudent} close={() => setPasswordStudent(null)} onSubmit={resetStudentPassword} />}
     {toast && <div className="toast" role="status">{toast}</div>}
   </div>
 }
@@ -563,7 +574,25 @@ function Dashboard({ stats, assignments, submissions, busy, go }) {
   return <><Heading eyebrow="YOUR CLASS AT A GLANCE" title="ภาพรวมการส่งงาน" subtitle="ติดตามความคืบหน้าของนักเรียนและงานทั้งหมด" action={<button className="primary" onClick={() => go('scanner')}>＋ รับงานด้วย QR</button>} /><div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-3">{cards.map(([label, number, note, icon], i) => <article className="stat" key={label}><span className={`mb-3 grid h-9 w-9 place-items-center rounded-xl text-lg ${['bg-teal-50 text-teal-700', 'bg-orange-50 text-orange-600', 'bg-sky-50 text-sky-700', 'bg-rose-50 text-rose-600', 'bg-violet-50 text-violet-600', 'bg-green-50 text-green-700'][i]}`}>{icon}</span><span className="text-xs font-semibold text-slate-500">{label}</span><strong>{Number(number || 0).toLocaleString()}</strong><small>{note}</small></article>)}</div><section className="panel"><div className="panel-head"><div><h2>ความคืบหน้ารายงาน</h2><p className="muted">สถานะการส่งของนักเรียนในแต่ละงาน</p></div><button className="text-button" onClick={() => go('reports')}>ดูรายงานทั้งหมด →</button></div><div className="table-wrap"><table><thead><tr><th>งาน</th><th>วิชา</th><th>กำหนดส่ง</th><th>ส่งแล้ว</th><th>ยังไม่ส่ง</th><th>ความคืบหน้า</th></tr></thead><tbody>{assignments.length ? assignments.map(a => { const list = submissions.filter(s => s.assignment_id === a.id), done = list.filter(s => s.status !== 'pending').length, pending = list.length - done, pct = list.length ? Math.round(done / list.length * 100) : 0; return <tr key={a.id}><td><b>{a.assignment_name}</b><small>{a.assignment_code}</small></td><td>{a.subject || '—'}</td><td>{niceDate(a.due_date)}</td><td>{done}</td><td>{pending}</td><td><div className="inline-flex items-center gap-2"><span className="h-1.5 w-24 overflow-hidden rounded bg-slate-100"><i className="block h-full rounded bg-teal-700" style={{ width: `${pct}%` }} /></span><small>{pct}%</small></div></td></tr> }) : <tr><td className="empty" colSpan="6">{busy ? 'กำลังโหลด…' : 'ยังไม่มีงาน ลองสร้างงานแรกของคุณ'}</td></tr>}</tbody></table></div></section></>
 }
 
-function Students({ rows, search, setSearch, add, bulkImport, provision, busy, edit, remove }) { return <><Heading eyebrow="STUDENT DIRECTORY" title="นักเรียน" subtitle="จัดการข้อมูลประจำตัวและพิมพ์ QR นักเรียน" action={<div className="flex flex-wrap gap-2"><button className="secondary" onClick={provision} disabled={busy}>♙ สร้างบัญชีนักเรียน</button><button className="secondary" onClick={bulkImport}>⇧ นำเข้าหลายคน</button><button className="primary" onClick={add}>＋ เพิ่มนักเรียน</button></div>} /><section className="panel"><div className="toolbar"><input className="field flex-1" placeholder="ค้นหารหัส ชื่อ หรือห้องเรียน…" value={search} onChange={e => setSearch(e.target.value)} /><button className="secondary" onClick={() => printCards(rows, 'student')}>▧ พิมพ์ QR</button></div><div className="table-wrap"><table><thead><tr><th>เลขที่</th><th>รหัสนักเรียน</th><th>ชื่อ-สกุล</th><th>ชั้น</th><th>ส่งแล้ว</th><th>สถานะ</th><th /></tr></thead><tbody>{rows.map(s => <tr key={s.id}><td>{s.student_number || '—'}</td><td><b>{s.student_code}</b></td><td>{s.student_name}</td><td>{s.class_name || '—'}</td><td>—</td><td><Pill value={s.status} /></td><td className="row-actions"><button onClick={() => edit(s)}>แก้ไข</button><button className="danger" onClick={() => remove(s)}>ลบ</button></td></tr>)}</tbody></table>{!rows.length && <p className="empty">ไม่พบนักเรียน</p>}</div></section></> }
+function Students({ rows, search, setSearch, add, bulkImport, provision, busy, edit, resetPassword, remove }) { return <><Heading eyebrow="STUDENT DIRECTORY" title="นักเรียน" subtitle="จัดการข้อมูลประจำตัว พิมพ์ QR และตั้งรหัสผ่านชั่วคราวให้นักเรียน" action={<div className="flex flex-wrap gap-2"><button className="secondary" onClick={provision} disabled={busy}>♙ สร้างบัญชีนักเรียน</button><button className="secondary" onClick={bulkImport}>⇧ นำเข้าหลายคน</button><button className="primary" onClick={add}>＋ เพิ่มนักเรียน</button></div>} /><section className="panel"><div className="toolbar"><input className="field flex-1" placeholder="ค้นหารหัส ชื่อ หรือห้องเรียน…" value={search} onChange={e => setSearch(e.target.value)} /><button className="secondary" onClick={() => printCards(rows, 'student')}>▧ พิมพ์ QR</button></div><div className="table-wrap"><table><thead><tr><th>เลขที่</th><th>รหัสนักเรียน</th><th>ชื่อ-สกุล</th><th>ชั้น</th><th>ส่งแล้ว</th><th>สถานะ</th><th /></tr></thead><tbody>{rows.map(s => <tr key={s.id}><td>{s.student_number || '—'}</td><td><b>{s.student_code}</b></td><td>{s.student_name}</td><td>{s.class_name || '—'}</td><td>—</td><td><Pill value={s.status} /></td><td className="row-actions"><button onClick={() => edit(s)}>แก้ไข</button><button onClick={() => resetPassword(s)} disabled={!s.auth_user_id} title={s.auth_user_id ? 'ตั้งหรือรีเซ็ตรหัสผ่าน' : 'สร้างบัญชีนักเรียนก่อน'}>ตั้งรหัสผ่าน</button><button className="danger" onClick={() => remove(s)}>ลบ</button></td></tr>)}</tbody></table>{!rows.length && <p className="empty">ไม่พบนักเรียน</p>}</div></section></> }
+
+function StudentPasswordReset({ student, close, onSubmit }) {
+  const [mode, setMode] = useState('student_code')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  async function submit(event) {
+    event.preventDefault(); setError('')
+    const values = new FormData(event.currentTarget)
+    const password = String(values.get('password') || '')
+    const confirm = String(values.get('confirm') || '')
+    if (mode === 'custom' && password !== confirm) return setError('รหัสผ่านทั้งสองช่องไม่ตรงกัน')
+    setBusy(true)
+    try { await onSubmit(student, mode, password) }
+    catch (cause) { setError(cause?.message || 'ตั้งรหัสผ่านไม่สำเร็จ') }
+    finally { setBusy(false) }
+  }
+  return <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) close() }}><form className="modal" onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">STUDENT ACCOUNT</p><h2 className="m-0 text-lg font-bold">ตั้งรหัสผ่านชั่วคราว</h2><p className="muted mt-1">{student.student_code} · {student.student_name}</p></div><button type="button" className="text-xl text-slate-500" disabled={busy} onClick={close}>×</button></div><div className="modal-body grid gap-4"><p className="muted">ระบบไม่สามารถแสดงรหัสเดิมได้ เพราะ Supabase เก็บเป็น hash เมื่อรีเซ็ตแล้ว นักเรียนต้องตั้งรหัสใหม่หลังเข้าสู่ระบบ</p><label className="flex items-start gap-2 text-sm"><input type="radio" name="reset-mode" checked={mode === 'student_code'} onChange={() => setMode('student_code')} /><span>ตั้งรหัสชั่วคราวให้เหมือนรหัสนักเรียน <b>{student.student_code}</b></span></label><label className="flex items-start gap-2 text-sm"><input type="radio" name="reset-mode" checked={mode === 'custom'} onChange={() => setMode('custom')} /><span>กำหนดรหัสชั่วคราวเอง (อย่างน้อย 6 ตัว)</span></label>{mode === 'custom' && <><label className="grid gap-2 text-xs font-semibold">รหัสชั่วคราว<input className="field" type="password" name="password" minLength="6" required autoComplete="new-password" /></label><label className="grid gap-2 text-xs font-semibold">ยืนยันรหัสชั่วคราว<input className="field" type="password" name="confirm" minLength="6" required autoComplete="new-password" /></label></>}{error && <p className="rounded-lg bg-red-50 p-3 text-xs text-red-700">{error}</p>}</div><div className="modal-foot"><button type="button" className="secondary" disabled={busy} onClick={close}>ยกเลิก</button><button className="primary" disabled={busy}>{busy ? 'กำลังตั้งรหัส…' : 'บันทึกรหัสชั่วคราว'}</button></div></form></div>
+}
 
 function BulkStudentImport({ existingStudents, close, onImport }) {
   const [pasted, setPasted] = useState('')
