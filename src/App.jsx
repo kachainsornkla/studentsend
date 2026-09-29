@@ -21,6 +21,69 @@ async function fetchPages(queryForRange) {
   }
 }
 
+const studentHeaderAliases = {
+  student_code: ['studentcode', 'code', 'studentid', 'id', 'รหัสนักเรียน', 'รหัสประจำตัว', 'รหัส'],
+  student_name: ['studentname', 'fullname', 'name', 'ชื่อนามสกุล', 'ชื่อสกุล', 'ชื่อ'],
+  class_name: ['classname', 'class', 'room', 'grade', 'ชั้นห้อง', 'ชั้น', 'ห้อง'],
+  student_number: ['studentnumber', 'number', 'no', 'เลขที่', 'ลำดับ'],
+}
+const normalizeStudentHeader = value => String(value ?? '').toLowerCase().replace(/[\s_./()\-]+/g, '')
+function parseStudentMatrix(matrix, existingStudents) {
+  const rows = (matrix || []).filter(row => row.some(value => String(value ?? '').trim() !== ''))
+  if (!rows.length) return { valid: [], errors: [], total: 0 }
+  const normalizedHeaders = rows[0].map(normalizeStudentHeader)
+  const columns = Object.fromEntries(Object.entries(studentHeaderAliases).map(([field, aliases]) => [field, normalizedHeaders.findIndex(header => aliases.includes(header))]))
+  const hasHeader = columns.student_code >= 0 && columns.student_name >= 0
+  const dataRows = hasHeader ? rows.slice(1) : rows
+  const existingCodes = new Set(existingStudents.map(row => String(row.student_code).trim().toLowerCase()))
+  const seenCodes = new Set()
+  const valid = [], errors = []
+  dataRows.forEach((cells, index) => {
+    const get = (field, fallback) => String(cells[hasHeader ? columns[field] : fallback] ?? '').trim()
+    const student_code = get('student_code', 1)
+    const student_name = get('student_name', 2)
+    const class_name = get('class_name', 3)
+    const numberValue = get('student_number', 0)
+    const line = index + (hasHeader ? 2 : 1)
+    const problems = []
+    if (!student_code) problems.push('ไม่มีรหัสนักเรียน')
+    if (!student_name) problems.push('ไม่มีชื่อ-นามสกุล')
+    const normalizedCode = student_code.toLowerCase()
+    if (student_code && existingCodes.has(normalizedCode)) problems.push('รหัสนี้มีอยู่ในระบบแล้ว')
+    if (student_code && seenCodes.has(normalizedCode)) problems.push('รหัสซ้ำในไฟล์')
+    const student_number = numberValue ? Number(numberValue) : null
+    if (numberValue && (!Number.isInteger(student_number) || student_number < 1)) problems.push('เลขที่ต้องเป็นจำนวนเต็มตั้งแต่ 1 ขึ้นไป')
+    if (problems.length) errors.push({ line, code: student_code, message: problems.join(' · ') })
+    else {
+      seenCodes.add(normalizedCode)
+      valid.push({ student_code, student_name, class_name: class_name || null, student_number, status: 'active' })
+    }
+  })
+  return { valid, errors, total: dataRows.length }
+}
+
+function parsePastedStudentData(text) {
+  const input = text.trim()
+  if (!input) return []
+  const delimiter = input.includes('\t') ? '\t' : ','
+  const matrix = []
+  let row = [], cell = '', quoted = false
+  for (let i = 0; i < input.length; i += 1) {
+    const char = input[i]
+    if (char === '"') {
+      if (quoted && input[i + 1] === '"') { cell += '"'; i += 1 }
+      else quoted = !quoted
+    } else if (!quoted && char === delimiter) { row.push(cell); cell = '' }
+    else if (!quoted && (char === '\n' || char === '\r')) {
+      if (char === '\r' && input[i + 1] === '\n') i += 1
+      row.push(cell); matrix.push(row); row = []; cell = ''
+    } else cell += char
+  }
+  row.push(cell)
+  if (row.some(value => value.trim())) matrix.push(row)
+  return matrix
+}
+
 export default function App() {
   const [session, setSession] = useState(null)
   const [profile, setProfile] = useState(null)
@@ -46,6 +109,7 @@ export default function App() {
   const [loginError, setLoginError] = useState('')
   const [loginBusy, setLoginBusy] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [studentImportOpen, setStudentImportOpen] = useState(false)
   const readerRef = useRef(null)
   const cameraRef = useRef(null)
   const scanLock = useRef(false)
@@ -124,6 +188,20 @@ export default function App() {
     const row = { student_code: values.student_code.trim(), student_name: values.student_name.trim(), class_name: values.class_name.trim() || null, student_number: values.student_number ? Number(values.student_number) : null, status: values.status }
     const request = record?.id ? supabase.from('students').update(row).eq('id', record.id) : supabase.from('students').insert(row)
     const { error } = await request; if (error) return notify(msg(error)); setModal(null); await loadAll(); notify('บันทึกข้อมูลนักเรียนแล้ว')
+  }
+
+  async function importStudents(rows) {
+    let inserted = 0
+    for (let start = 0; start < rows.length; start += 200) {
+      const { error } = await supabase.from('students').insert(rows.slice(start, start + 200))
+      if (error) {
+        await loadAll()
+        return { inserted, error: error.message }
+      }
+      inserted += Math.min(200, rows.length - start)
+    }
+    await loadAll()
+    return { inserted }
   }
 
   async function saveAssignment(event) {
@@ -237,13 +315,14 @@ export default function App() {
       <header className="topbar"><button className="mr-3 rounded p-2 md:hidden" onClick={() => setMenuOpen(true)}>☰</button><div><span className="eyebrow">CLASSROOM MANAGEMENT</span><strong>{{ dashboard: 'ภาพรวม', students: 'นักเรียน', assignments: 'งานและ QR', scanner: 'สแกนรับงาน', reports: 'รายงานและตรวจ' }[page]}</strong></div><span className="text-xs text-slate-500">{new Date().toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</span></header>
       <div className="content">
         {page === 'dashboard' && <Dashboard stats={dashboard} assignments={assignments.filter(a => a.status === 'active')} submissions={submissions} busy={busy} go={changePage} />}
-        {page === 'students' && <Students rows={filteredStudents} search={search} setSearch={setSearch} add={() => { setRecord(null); setModal('student') }} edit={s => { setRecord(s); setModal('student') }} remove={s => removeRow('students', s)} />}
+        {page === 'students' && <Students rows={filteredStudents} search={search} setSearch={setSearch} add={() => { setRecord(null); setModal('student') }} bulkImport={() => setStudentImportOpen(true)} edit={s => { setRecord(s); setModal('student') }} remove={s => removeRow('students', s)} />}
         {page === 'assignments' && <Assignments rows={filteredAssignments} search={search} setSearch={setSearch} add={() => { setRecord(null); setModal('assignment') }} edit={a => { setRecord(a); setModal('assignment') }} remove={a => removeRow('assignments', a)} />}
         {page === 'scanner' && <Scanner mode={mode} setMode={m => { setMode(m); resetPair() }} assignments={assignments.filter(a => a.status === 'active')} selected={activeAssignment} setSelected={setActiveAssignment} student={scanStudent} assignment={scanAssignment} duplicate={duplicate} receive={receiveSubmission} reset={resetPair} readerRef={readerRef} cameraOn={cameraOn} start={startCamera} stop={stopCamera} error={cameraError} />}
         {page === 'reports' && <Reports rows={filteredSubmissions} search={search} setSearch={setSearch} assignmentFilter={assignmentFilter} setAssignmentFilter={setAssignmentFilter} statusFilter={statusFilter} setStatusFilter={setStatusFilter} assignments={assignments} edit={s => { setRecord(s); setModal('grade') }} />}
       </div>
     </main>
     {modal && <Editor type={modal} record={record} close={() => setModal(null)} save={modal === 'student' ? saveStudent : modal === 'assignment' ? saveAssignment : saveGrade} />}
+    {studentImportOpen && <BulkStudentImport existingStudents={students} close={() => setStudentImportOpen(false)} onImport={importStudents} />}
     {toast && <div className="toast" role="status">{toast}</div>}
   </div>
 }
@@ -257,7 +336,59 @@ function Dashboard({ stats, assignments, submissions, busy, go }) {
   return <><Heading eyebrow="YOUR CLASS AT A GLANCE" title="ภาพรวมการส่งงาน" subtitle="ติดตามความคืบหน้าของนักเรียนและงานทั้งหมด" action={<button className="primary" onClick={() => go('scanner')}>＋ รับงานด้วย QR</button>} /><div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-3">{cards.map(([label, number, note, icon], i) => <article className="stat" key={label}><span className={`mb-3 grid h-9 w-9 place-items-center rounded-xl text-lg ${['bg-teal-50 text-teal-700', 'bg-orange-50 text-orange-600', 'bg-sky-50 text-sky-700', 'bg-rose-50 text-rose-600', 'bg-violet-50 text-violet-600', 'bg-green-50 text-green-700'][i]}`}>{icon}</span><span className="text-xs font-semibold text-slate-500">{label}</span><strong>{Number(number || 0).toLocaleString()}</strong><small>{note}</small></article>)}</div><section className="panel"><div className="panel-head"><div><h2>ความคืบหน้ารายงาน</h2><p className="muted">สถานะการส่งของนักเรียนในแต่ละงาน</p></div><button className="text-button" onClick={() => go('reports')}>ดูรายงานทั้งหมด →</button></div><div className="table-wrap"><table><thead><tr><th>งาน</th><th>วิชา</th><th>กำหนดส่ง</th><th>ส่งแล้ว</th><th>ยังไม่ส่ง</th><th>ความคืบหน้า</th></tr></thead><tbody>{assignments.length ? assignments.map(a => { const list = submissions.filter(s => s.assignment_id === a.id), done = list.filter(s => s.status !== 'pending').length, pending = list.length - done, pct = list.length ? Math.round(done / list.length * 100) : 0; return <tr key={a.id}><td><b>{a.assignment_name}</b><small>{a.assignment_code}</small></td><td>{a.subject || '—'}</td><td>{niceDate(a.due_date)}</td><td>{done}</td><td>{pending}</td><td><div className="inline-flex items-center gap-2"><span className="h-1.5 w-24 overflow-hidden rounded bg-slate-100"><i className="block h-full rounded bg-teal-700" style={{ width: `${pct}%` }} /></span><small>{pct}%</small></div></td></tr> }) : <tr><td className="empty" colSpan="6">{busy ? 'กำลังโหลด…' : 'ยังไม่มีงาน ลองสร้างงานแรกของคุณ'}</td></tr>}</tbody></table></div></section></>
 }
 
-function Students({ rows, search, setSearch, add, edit, remove }) { return <><Heading eyebrow="STUDENT DIRECTORY" title="นักเรียน" subtitle="จัดการข้อมูลประจำตัวและพิมพ์ QR นักเรียน" action={<button className="primary" onClick={add}>＋ เพิ่มนักเรียน</button>} /><section className="panel"><div className="toolbar"><input className="field flex-1" placeholder="ค้นหารหัส ชื่อ หรือห้องเรียน…" value={search} onChange={e => setSearch(e.target.value)} /><button className="secondary" onClick={() => printCards(rows, 'student')}>▧ พิมพ์ QR</button></div><div className="table-wrap"><table><thead><tr><th>รหัส</th><th>ชื่อ-นามสกุล</th><th>ชั้น / เลขที่</th><th>ส่งแล้ว</th><th>สถานะ</th><th /></tr></thead><tbody>{rows.map(s => <tr key={s.id}><td><b>{s.student_code}</b></td><td>{s.student_name}</td><td>{s.class_name || '—'} {s.student_number && `· ${s.student_number}`}</td><td>—</td><td><Pill value={s.status} /></td><td className="row-actions"><button onClick={() => edit(s)}>แก้ไข</button><button className="danger" onClick={() => remove(s)}>ลบ</button></td></tr>)}</tbody></table>{!rows.length && <p className="empty">ไม่พบนักเรียน</p>}</div></section></> }
+function Students({ rows, search, setSearch, add, bulkImport, edit, remove }) { return <><Heading eyebrow="STUDENT DIRECTORY" title="นักเรียน" subtitle="จัดการข้อมูลประจำตัวและพิมพ์ QR นักเรียน" action={<div className="flex flex-wrap gap-2"><button className="secondary" onClick={bulkImport}>⇧ นำเข้าหลายคน</button><button className="primary" onClick={add}>＋ เพิ่มนักเรียน</button></div>} /><section className="panel"><div className="toolbar"><input className="field flex-1" placeholder="ค้นหารหัส ชื่อ หรือห้องเรียน…" value={search} onChange={e => setSearch(e.target.value)} /><button className="secondary" onClick={() => printCards(rows, 'student')}>▧ พิมพ์ QR</button></div><div className="table-wrap"><table><thead><tr><th>เลขที่</th><th>รหัสนักเรียน</th><th>ชื่อ-สกุล</th><th>ชั้น</th><th>ส่งแล้ว</th><th>สถานะ</th><th /></tr></thead><tbody>{rows.map(s => <tr key={s.id}><td>{s.student_number || '—'}</td><td><b>{s.student_code}</b></td><td>{s.student_name}</td><td>{s.class_name || '—'}</td><td>—</td><td><Pill value={s.status} /></td><td className="row-actions"><button onClick={() => edit(s)}>แก้ไข</button><button className="danger" onClick={() => remove(s)}>ลบ</button></td></tr>)}</tbody></table>{!rows.length && <p className="empty">ไม่พบนักเรียน</p>}</div></section></> }
+
+function BulkStudentImport({ existingStudents, close, onImport }) {
+  const [pasted, setPasted] = useState('')
+  const [preview, setPreview] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  function showPreview(matrix) {
+    setError('')
+    const result = parseStudentMatrix(matrix, existingStudents)
+    if (!result.total) { setPreview(null); setError('ไม่พบแถวข้อมูล กรุณาตรวจไฟล์หรือวางข้อมูลก่อน'); return }
+    setPreview(result)
+  }
+
+  async function readFile(event) {
+    const file = event.target.files?.[0]
+    if (!file) return
+    try {
+      const XLSX = await import('xlsx')
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' })
+      const sheet = workbook.Sheets[workbook.SheetNames[0]]
+      showPreview(XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false }))
+    } catch {
+      setError('อ่านไฟล์ไม่ได้ กรุณาใช้ .xlsx, .xls, .csv หรือ .tsv')
+    }
+    event.target.value = ''
+  }
+
+  async function save() {
+    if (!preview?.valid.length || busy) return
+    setBusy(true); setError('')
+    try {
+      const result = await onImport(preview.valid)
+      if (result.error) {
+        setError(`เพิ่มแล้ว ${result.inserted} คน แต่มีข้อผิดพลาด: ${result.error}`)
+        if (result.inserted) setPreview(null)
+        return
+      }
+      close()
+    } catch (cause) { setError(cause?.message || 'นำเข้าข้อมูลไม่สำเร็จ') }
+    finally { setBusy(false) }
+  }
+
+  return <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) close() }}><section className="modal" style={{ width: 'min(900px, 100%)' }}><div className="modal-head"><div><p className="eyebrow">BULK IMPORT</p><h2 className="m-0 text-lg font-bold">นำเข้านักเรียนหลายคน</h2></div><button className="text-xl text-slate-500" disabled={busy} onClick={close}>×</button></div><div className="modal-body grid gap-4">
+    <p className="muted">เลือกไฟล์ Excel/CSV หรือคัดลอกตารางจาก Google Sheets แล้ววางด้านล่าง ระบบอ่านชีตแรกและตรวจรหัสซ้ำก่อนบันทึก</p>
+    <label className="grid gap-2 text-xs font-semibold">เลือกไฟล์ Excel หรือ CSV<input className="field" type="file" accept=".xlsx,.xls,.csv,.tsv,.txt" onChange={readFile} /></label>
+    <div><label className="mb-2 grid gap-2 text-xs font-semibold">หรือวางข้อมูลจาก Google Sheets<textarea className="field font-mono" rows="5" placeholder={'เลขที่\tรหัสนักเรียน\tชื่อ-สกุล\tชั้น\n1\t65001\tด.ช. ตัวอย่าง ใจดี\tม.1/1'} value={pasted} onChange={event => setPasted(event.target.value)} /></label><button className="secondary" onClick={() => showPreview(parsePastedStudentData(pasted))}>ตรวจข้อมูลที่วาง</button></div>
+    <p className="text-[11px] leading-5 text-slate-500">เรียงคอลัมน์เป็น เลขที่, รหัสนักเรียน, ชื่อ-สกุล, ชั้น (รหัสและชื่อจำเป็น) · รองรับหัวตารางภาษาไทย/อังกฤษ หรือไม่มีหัวตาราง</p>
+    {error && <p className="rounded-lg bg-red-50 p-3 text-xs text-red-700">{error}</p>}
+    {preview && <div className="grid gap-3"><div className="flex flex-wrap gap-x-5 gap-y-1 text-xs"><b className="text-teal-800">พร้อมนำเข้า {preview.valid.length} คน</b><span className="text-red-600">รายการที่ต้องแก้/ข้าม {preview.errors.length} แถว</span></div>{preview.valid.length > 0 && <div className="max-h-52 overflow-auto rounded-lg border border-slate-200"><table><thead><tr><th>เลขที่</th><th>รหัสนักเรียน</th><th>ชื่อ-สกุล</th><th>ชั้น</th></tr></thead><tbody>{preview.valid.slice(0, 100).map((row, index) => <tr key={`${row.student_code}-${index}`}><td>{row.student_number || '—'}</td><td>{row.student_code}</td><td>{row.student_name}</td><td>{row.class_name || '—'}</td></tr>)}</tbody></table>{preview.valid.length > 100 && <p className="p-2 text-center text-xs text-slate-500">แสดงตัวอย่าง 100 รายการแรก จาก {preview.valid.length} คน</p>}</div>}{preview.errors.length > 0 && <div className="max-h-28 overflow-auto rounded-lg bg-red-50 p-3 text-xs text-red-700">{preview.errors.slice(0, 20).map(item => <p key={`${item.line}-${item.code}`}>แถว {item.line}{item.code ? ` · ${item.code}` : ''}: {item.message}</p>)}{preview.errors.length > 20 && <p>และอีก {preview.errors.length - 20} แถว</p>}</div>}</div>}
+    </div><div className="modal-foot"><button className="secondary" disabled={busy} onClick={close}>ยกเลิก</button><button className="primary" disabled={busy || !preview?.valid.length} onClick={save}>{busy ? 'กำลังนำเข้า…' : `นำเข้า ${preview?.valid.length || 0} คน`}</button></div></section></div>
+}
 function Assignments({ rows, search, setSearch, add, edit, remove }) { return <><Heading eyebrow="ASSIGNMENT LIBRARY" title="งานและ QR" subtitle="QR งานหนึ่งใบใช้ร่วมกับนักเรียนทุกคน" action={<button className="primary" onClick={add}>＋ สร้างงาน</button>} /><section className="panel"><div className="toolbar"><input className="field flex-1" placeholder="ค้นหารหัสงาน ชื่องาน หรือวิชา…" value={search} onChange={e => setSearch(e.target.value)} /><button className="secondary" onClick={() => printCards(rows, 'assignment')}>▧ พิมพ์ QR งาน</button></div><div className="table-wrap"><table><thead><tr><th>รหัส</th><th>ชื่องาน</th><th>วิชา</th><th>กำหนดส่ง</th><th>สถานะ</th><th /></tr></thead><tbody>{rows.map(a => <tr key={a.id}><td><b>{a.assignment_code}</b></td><td>{a.assignment_name}</td><td>{a.subject || '—'}</td><td>{niceDate(a.due_date)}</td><td><Pill value={a.status} /></td><td className="row-actions"><button onClick={() => printCards([a], 'assignment')}>QR</button><button onClick={() => edit(a)}>แก้ไข</button><button className="danger" onClick={() => remove(a)}>ลบ</button></td></tr>)}</tbody></table>{!rows.length && <p className="empty">ยังไม่มีงาน</p>}</div></section></> }
 
 function Scanner({ mode, setMode, assignments, selected, setSelected, student, assignment, duplicate, receive, reset, readerRef, cameraOn, start, stop, error }) {
