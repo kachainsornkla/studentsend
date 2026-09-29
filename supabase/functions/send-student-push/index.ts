@@ -1,5 +1,5 @@
 import { serviceClient, json, corsHeaders, errorResponse, requireStaff } from '../_shared/http.ts'
-import webpush from 'web-push'
+import webpush from 'npm:web-push@3.6.7'
 
 export default {
   async fetch(request: Request) {
