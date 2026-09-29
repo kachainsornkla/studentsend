@@ -11,10 +11,23 @@ export const json = (body: unknown, status = 200) => new Response(JSON.stringify
   headers: { ...corsHeaders, 'Content-Type': 'application/json' },
 })
 
+function runtimeKey(mapName: string, legacyName: string) {
+  const keyMap = Deno.env.get(mapName)
+  if (keyMap) {
+    try {
+      const keys = JSON.parse(keyMap) as Record<string, string>
+      if (keys.default) return keys.default
+    } catch {
+      // Fall back to the legacy runtime variable below.
+    }
+  }
+  return Deno.env.get(legacyName)
+}
+
 export const serviceClient = () => {
   const url = Deno.env.get('SUPABASE_URL')!
-  const key = Deno.env.get('SUPABASE_SECRET_KEY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
-  if (!url || !key) throw new Error('Set SUPABASE_URL and SUPABASE_SECRET_KEY function secrets')
+  const key = runtimeKey('SUPABASE_SECRET_KEYS', 'SUPABASE_SERVICE_ROLE_KEY')
+  if (!url || !key) throw new Error('Supabase service key is missing from the Edge Function runtime')
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } })
 }
 
@@ -22,8 +35,8 @@ export async function authenticatedUser(request: Request) {
   const authorization = request.headers.get('Authorization')
   if (!authorization) throw new Error('Unauthorized')
   const url = Deno.env.get('SUPABASE_URL')!
-  const key = Deno.env.get('SUPABASE_PUBLISHABLE_KEY') || Deno.env.get('SUPABASE_ANON_KEY')
-  if (!url || !key) throw new Error('Set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY function secrets')
+  const key = runtimeKey('SUPABASE_PUBLISHABLE_KEYS', 'SUPABASE_ANON_KEY')
+  if (!url || !key) throw new Error('Supabase publishable key is missing from the Edge Function runtime')
   const client = createClient(url, key, {
     global: { headers: { Authorization: authorization } },
     auth: { autoRefreshToken: false, persistSession: false },

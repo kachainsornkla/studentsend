@@ -18,7 +18,7 @@ supabase functions deploy change-student-password
 supabase functions deploy send-student-push
 ```
 
-The functions use Supabase's `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` runtime secrets. If the project uses the newer API key names instead, set `SUPABASE_PUBLISHABLE_KEY` and `SUPABASE_SECRET_KEY` as Edge Function secrets.
+Supabase provides `SUPABASE_URL` and the API keys to Edge Functions automatically. Current projects expose keys as JSON maps named `SUPABASE_PUBLISHABLE_KEYS` and `SUPABASE_SECRET_KEYS`; the functions select the `default` key and also support the legacy `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` variables. Do not manually add these platform-reserved `SUPABASE_` variables as function secrets. Only add the VAPID secrets in the next step.
 
 ## 3. Enable Web Push
 

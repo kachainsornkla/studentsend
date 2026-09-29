@@ -109,7 +109,7 @@ export default function App() {
   const [cameraError, setCameraError] = useState('')
   const [loginError, setLoginError] = useState('')
   const [loginBusy, setLoginBusy] = useState(false)
-  const [loginMode, setLoginMode] = useState('teacher')
+  const [loginMode, setLoginMode] = useState('student')
   const [menuOpen, setMenuOpen] = useState(false)
   const [studentImportOpen, setStudentImportOpen] = useState(false)
   const readerRef = useRef(null)
