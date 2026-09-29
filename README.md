@@ -1,80 +1,60 @@
 # StudentSend
 
-ระบบจัดการและรับส่งงานนักเรียนด้วย QR Code สร้างด้วย PHP 8.1+ และ MySQL 8 / MariaDB
+ระบบจัดการและรับส่งงานนักเรียนด้วย QR Code ใช้ React + Vite, Tailwind CSS, Supabase Auth/PostgreSQL, กล้องเบราว์เซอร์ และ Vite PWA Plugin
 
-## สิ่งที่ตรวจพบก่อนพัฒนา
+## Features
 
-Repository เดิมไม่มี source code, schema, authentication, AdminLTE หรือ API (มีเพียง Git metadata และยังไม่มี commit) จึงไม่มีส่วนเดิมให้ reuse ได้ ระบบนี้เริ่มจากโครงสร้าง PHP ขนาดเล็กที่ใช้ PDO และ vanilla JavaScript
+- เข้าสู่ระบบด้วย Supabase Auth (email/password); ไม่มีระบบรหัสผ่านแยกในแอป
+- จัดการนักเรียน งาน สถานะ คะแนน และหมายเหตุ
+- QR token สุ่มแยกสำหรับนักเรียนแต่ละคนและงานแต่ละชิ้น
+- สแกน QR ผ่านกล้องด้วย `html5-qrcode` ได้ทั้งโหมดเลือกงานก่อนและนักเรียนก่อน
+- รับงานซ้ำไม่ได้ด้วย `UNIQUE(student_id, assignment_id)` และ conditional update จาก `pending`
+- สร้างรายการ `pending` อัตโนมัติเมื่อเพิ่ม/เปิดใช้งานนักเรียนหรืองาน
+- Dashboard, ค้นหา/กรองรายงาน และพิมพ์ QR A4
+- PWA manifest และ auto-update service worker
+- RLS อนุญาตเฉพาะ UUID ที่ลงทะเบียนเป็น active staff ใน `app_users`
 
-## ความสามารถ
+## Local development
 
-- เข้าสู่ระบบด้วยบัญชีครู/ผู้ดูแลและรหัสผ่านที่ hash ด้วย `password_hash`.
-- จัดการนักเรียนและงาน พร้อมสถานะ active/inactive และ QR token สุ่มที่ไม่เปิดเผยข้อมูลจริง
-- สร้าง QR นักเรียนหนึ่งใบต่อคน และ QR งานหนึ่งใบต่องาน; พิมพ์เป็นแผ่น A4 หลายใบ
-- สแกนกล้องมือถือหรือ webcam ได้ทั้งโหมดเลือกงานก่อนและสแกนนักเรียนก่อน
-- สร้างรายการ pending สำหรับนักเรียน active เมื่องานถูกเพิ่ม และสร้างรายการงาน active เมื่อนักเรียนใหม่ถูกเพิ่ม
-- รับงานครั้งเดียวด้วย unique constraint; การ insert ใช้ `INSERT IGNORE` เพื่อป้องกันการรับซ้ำแม้คำขอเข้าพร้อมกัน
-- คำนวณ submitted/late ในเวลารับงานจาก due date, ตรวจสถานะ, ให้คะแนน และบันทึกหมายเหตุ
-- Dashboard และรายงานรายนักเรียน/งาน รองรับข้อมูลระดับ 200 × 10 และมากกว่า
-- CSRF token, prepared statements, session cookie แบบ HttpOnly/SameSite, password hashing และ validation เบื้องต้น
+1. ใช้ Node.js 20.19+ หรือ 22.12+.
+2. เปิด Supabase project แล้วรันเนื้อหาใน [supabase/schema.sql](supabase/schema.sql) ใน SQL Editor
+3. เชิญบัญชีครูผ่าน Supabase Authentication แล้วเพิ่ม UUID ใน `app_users` ผ่าน SQL Editor:
 
-## ติดตั้ง
-
-1. ติดตั้ง PHP 8.1+ พร้อม `pdo_mysql` และ MySQL 8 หรือ MariaDB
-2. สร้าง schema:
-
-   ```sh
-   mysql -u root -p < database/schema.sql
+   ```sql
+   insert into public.app_users(user_id, display_name, role)
+   values ('AUTH-USER-UUID', 'ชื่อครู', 'admin');
    ```
 
-3. กำหนดค่าฐานข้อมูลผ่าน environment variables (ค่าเริ่มต้นอยู่ใน `config/config.php`):
+4. คัดลอก `.env.example` เป็น `.env.local` แล้วใส่ Project URL และ Publishable key จาก Supabase:
 
    ```text
-   DB_HOST=127.0.0.1
-   DB_PORT=3306
-   DB_DATABASE=studentsend
-   DB_USERNAME=...
-   DB_PASSWORD=...
-   APP_TIMEZONE=Asia/Bangkok
+   VITE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+   VITE_SUPABASE_PUBLISHABLE_KEY=YOUR_SUPABASE_PUBLISHABLE_KEY
    ```
 
-4. สร้างผู้ใช้เริ่มต้น. รหัสผ่านต้องมีอย่างน้อย 12 ตัวอักษร:
+5. ติดตั้งและเริ่มพัฒนา:
 
    ```sh
-   STUDENTSEND_INITIAL_PASSWORD='use-a-long-unique-password' php tools/create_user.php admin "School Administrator"
+   pnpm install
+   pnpm dev
    ```
 
-   บน PowerShell: `$env:STUDENTSEND_INITIAL_PASSWORD='use-a-long-unique-password'; php tools/create_user.php admin 'School Administrator'`
+   ใช้ `pnpm build` เพื่อสร้างเว็บ production ใน `dist/` และ `pnpm preview` เพื่อดู build ในเครื่อง
 
-5. เสิร์ฟ `public/` เป็น document root ผ่าน Apache/Nginx ที่ใช้ HTTPS. สำหรับทดลองบนเครื่องตัวเองใช้ `php -S 127.0.0.1:8000 -t public` แล้วเปิด `http://127.0.0.1:8000`. กล้องต้องใช้ HTTPS เว้นแต่ localhost
+## Deploy to Cloudflare Pages
 
-QR scanner และ generator โหลดจาก CDN (`html5-qrcode`, `qrcodejs`) และฟอนต์จาก Google Fonts; ต้องเชื่อมอินเทอร์เน็ตเพื่อให้สแกน/สร้าง QR ได้ในหน้าเว็บ หากต้องใช้ในเครือข่ายปิด ให้นำไลบรารีที่มี license เหมาะสมมาโฮสต์ใน `public/assets/vendor/` แล้วแก้ script tags ใน `public/index.php`.
+เชื่อม Git repository ใน Cloudflare Pages แล้วตั้งค่า:
 
-## การใช้งาน
+- Build command: `pnpm build`
+- Build output directory: `dist`
+- Environment variables: `VITE_SUPABASE_URL` และ `VITE_SUPABASE_PUBLISHABLE_KEY`
 
-1. เพิ่มรายชื่อนักเรียนและงาน (สร้างงานจะสร้างสถานะ pending ให้นักเรียน active ที่มีอยู่)
-2. พิมพ์ QR นักเรียน/งานจากหน้ารายการ
-3. ไปที่ “สแกนรับงาน”, เลือกงานเพื่อรับงานเดียวต่อเนื่อง หรือเลือกโหมดนักเรียนก่อน
-4. สแกน QR; หน้าจอจะแสดงสถานะเดิมก่อนเปิดปุ่มยืนยัน
-5. ตรวจงานจากหน้ารายงาน: ปรับสถานะ, คะแนน, คะแนนเต็ม และหมายเหตุ
+ตั้ง environment variables ทั้ง Production และ Preview ตามต้องการ จากนั้น Pages จะ build ใหม่เมื่อมีการ push commit. ห้ามใช้ Supabase `service_role` key ใน frontend; publishable key ใช้ได้เมื่อเปิด RLS และ policies ตาม schema
 
-QR payload ใช้รูปแบบ `STU:<32-char random token>` หรือ `ASSIGN:<32-char random token>`. Token ใช้เป็น opaque identifier; ข้อมูลชื่อและข้อมูลชั้นเรียนอยู่ในฐานข้อมูลเท่านั้น
+## Camera and PWA
 
-## โครงสร้าง
+กล้องต้องใช้ HTTPS (localhost ใช้ได้โดยไม่ต้อง HTTPS) และผู้ใช้ต้องอนุญาต Camera. PWA service worker ใช้บน secure context และติดตั้งได้จากเบราว์เซอร์ที่รองรับ
 
-```text
-app/bootstrap.php       PDO, session, API handlers
-config/config.php       Database/app configuration
-database/schema.sql     Tables, indexes, constraints
-public/index.php        Auth shell and application UI
-public/assets/app.js    SPA interactions, scanner, QR print, API client
-public/assets/app.css   Responsive UI and print styles
-tools/create_user.php   CLI account provisioning
-```
+## Database import
 
-## Verification / known limits
-
-- This environment did not have PHP installed, and no MySQL service/configuration was present. PHP lint, schema migration against MySQL, browser QR scanning, print rendering, and 200×10 load verification could not be executed here.
-- QR code/scanner browser libraries are fetched from CDN; camera access needs a secure browser context and permission.
-- The UI is a single teacher/admin workspace. The database includes a teacher/admin role for future role-specific authorization, but current application routes grant the same capabilities to all active accounts.
-- Database credentials should use a dedicated account with privileges limited to this database. Deploy behind HTTPS and configure backups before production use.
+`supabase/schema.sql` เป็น PostgreSQL schema สำหรับโปรเจกต์ Supabase ใหม่ ไม่ใช่ CSV data dump. การ import รายชื่อนักเรียนเดิมให้เตรียม CSV อย่างน้อย `student_code,student_name,class_name,student_number` แล้ว import ผ่าน Table Editor หลังสร้าง schema; อย่านำ QR token หรือข้อมูลรหัสผ่านจากระบบเก่ามาใช้ซ้ำ
