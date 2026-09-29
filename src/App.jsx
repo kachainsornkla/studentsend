@@ -109,7 +109,6 @@ export default function App() {
   const [cameraError, setCameraError] = useState('')
   const [loginError, setLoginError] = useState('')
   const [loginBusy, setLoginBusy] = useState(false)
-  const [loginMode, setLoginMode] = useState('student')
   const [menuOpen, setMenuOpen] = useState(false)
   const [studentImportOpen, setStudentImportOpen] = useState(false)
   const readerRef = useRef(null)
@@ -164,7 +163,7 @@ export default function App() {
     event.preventDefault(); setLoginBusy(true); setLoginError('')
     const form = new FormData(event.currentTarget)
     const identifier = String(form.get('identifier') || '').trim()
-    const email = loginMode === 'student' ? studentLoginEmail(identifier) : identifier
+    const email = identifier.includes('@') ? identifier : studentLoginEmail(identifier)
     const { error } = await supabase.auth.signInWithPassword({ email, password: form.get('password') })
     if (error) setLoginError(error.message)
     setLoginBusy(false)
@@ -341,7 +340,7 @@ export default function App() {
 
   if (authLoading) return <div className="grid min-h-screen place-items-center text-sm text-slate-500">กำลังตรวจสอบบัญชี…</div>
   if (!isSupabaseConfigured) return <ConfigHelp />
-  if (!session) return <Login onSubmit={signIn} busy={loginBusy} error={loginError} mode={loginMode} setMode={setLoginMode} />
+  if (!session) return <Login onSubmit={signIn} busy={loginBusy} error={loginError} />
   if (!profile) return <div className="grid min-h-screen place-items-center text-sm text-slate-500">กำลังโหลดข้อมูลบัญชี…</div>
   if (profile.error || !profile.active) return <div className="grid min-h-screen place-items-center p-6"><div className="panel max-w-lg p-7 text-center"><h1 className="mb-2 text-xl font-bold">บัญชียังไม่ได้รับสิทธิ์ใช้งาน</h1><p className="muted mb-5">{session.user.app_metadata?.account_type === 'student' ? 'บัญชีนักเรียนนี้ถูกปิดใช้งานหรือยังไม่ได้เชื่อมกับรายชื่อ' : <>เพิ่ม UUID บัญชีนี้ในตาราง <code>public.app_users</code> ผ่าน SQL Editor ของ Supabase</>}</p><button className="primary" onClick={signOut}>ออกจากระบบ</button></div></div>
   if (profile.role === 'student' && profile.must_change_password) return <ChangeStudentPassword onSave={changeStudentPassword} />
@@ -371,7 +370,7 @@ export default function App() {
 }
 
 function ConfigHelp() { return <div className="login-shell"><div className="login-card"><span className="brand-mark mb-5">S</span><p className="eyebrow">SUPABASE SETUP</p><h1 className="mb-2 text-2xl font-bold">ตั้งค่าการเชื่อมต่อ</h1><p className="muted mb-5">คัดลอก <code>.env.example</code> เป็น <code>.env.local</code> แล้วใส่ Supabase Project URL และ Publishable Key จากหน้า Connect ของโปรเจกต์</p><code className="block rounded-lg bg-slate-50 p-3 text-xs">VITE_SUPABASE_URL=…<br/>VITE_SUPABASE_PUBLISHABLE_KEY=…</code></div></div> }
-function Login({ onSubmit, busy, error, mode, setMode }) { return <div className="login-shell"><form className="login-card" onSubmit={onSubmit}><span className="brand-mark mb-5">S</span><p className="eyebrow">SCHOOLS · SIMPLE · SECURE</p><h1 className="mb-1 text-3xl font-bold">StudentSend</h1><p className="muted mb-6">เข้าสู่ระบบสำหรับครูและนักเรียน</p><div className="mode-tabs"><button type="button" className={mode === 'teacher' ? 'active' : ''} onClick={() => setMode('teacher')}>ครู</button><button type="button" className={mode === 'student' ? 'active' : ''} onClick={() => setMode('student')}>นักเรียน</button></div><label className="mb-3 grid gap-2 text-xs font-semibold">{mode === 'student' ? 'รหัสนักเรียน' : 'อีเมล'}<input className="field" type={mode === 'student' ? 'text' : 'email'} name="identifier" required autoComplete="username" /></label><label className="mb-4 grid gap-2 text-xs font-semibold">รหัสผ่าน<input className="field" type="password" name="password" required autoComplete="current-password" /></label>{mode === 'student' && <p className="muted mb-3">เข้าครั้งแรกใช้รหัสนักเรียนเป็นรหัสผ่าน ระบบจะให้ตั้งรหัสใหม่</p>}{error && <p className="mb-3 text-xs text-red-600">{error}</p>}<button className="primary w-full" disabled={busy}>{busy ? 'กำลังเข้าสู่ระบบ…' : 'เข้าสู่ระบบ'}</button></form></div> }
+function Login({ onSubmit, busy, error }) { return <div className="login-shell"><form className="login-card" onSubmit={onSubmit}><span className="brand-mark mb-5">S</span><p className="eyebrow">SCHOOLS · SIMPLE · SECURE</p><h1 className="mb-1 text-3xl font-bold">StudentSend</h1><p className="muted mb-6">เข้าสู่ระบบสำหรับครูและนักเรียน</p><label className="mb-3 grid gap-2 text-xs font-semibold">อีเมลครู หรือรหัสนักเรียน<input className="field" type="text" name="identifier" required autoComplete="username" placeholder="อีเมลครู / รหัสนักเรียน" /></label><label className="mb-4 grid gap-2 text-xs font-semibold">รหัสผ่าน<input className="field" type="password" name="password" required autoComplete="current-password" /></label><p className="muted mb-3">ครูใช้บัญชีอีเมล · นักเรียนใช้รหัสนักเรียน (เข้าครั้งแรกใช้รหัสเดียวกันเป็นรหัสผ่าน)</p>{error && <p className="mb-3 text-xs text-red-600">{error}</p>}<button className="primary w-full" disabled={busy}>{busy ? 'กำลังเข้าสู่ระบบ…' : 'เข้าสู่ระบบ'}</button></form></div> }
 
 function ChangeStudentPassword({ onSave }) {
   const [busy, setBusy] = useState(false)
