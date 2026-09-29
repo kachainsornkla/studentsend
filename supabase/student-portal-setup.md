@@ -38,7 +38,7 @@ Add `VITE_VAPID_PUBLIC_KEY` with the public key in the Cloudflare Workers **Buil
 
 ## 4. Create student accounts
 
-Sign in as staff, open **นักเรียน**, and select **สร้างบัญชีนักเรียน**. Active students without an account are provisioned with their student code as the initial login name and password. At first sign-in, each student must replace that temporary password with one at least 8 characters long. Student codes are locked from editing after an account has been linked.
+Sign in as staff, open **นักเรียน**, and select **สร้างบัญชีนักเรียน**. Active students without an account are provisioned with their student code as the initial login name and password. Supabase Auth requires at least 6 characters, so the app internally pads a shorter initial code to meet that requirement while students still enter their own code. At first sign-in, each student must replace that temporary password with one at least 8 characters long. Student codes are locked from editing after an account has been linked.
 
 ## 5. Student access and notifications
 

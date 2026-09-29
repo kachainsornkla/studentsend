@@ -5,6 +5,8 @@ const loginEmail = (code: string) => {
   return `s-${hex}@students.studentsend.invalid`
 }
 
+const initialPassword = (code: string) => code.length >= 6 ? code : `${code}${'#'.repeat(6 - code.length)}`
+
 export default {
   async fetch(request: Request) {
     if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
@@ -29,7 +31,7 @@ export default {
         const email = loginEmail(String(student.student_code))
         const { data, error } = await admin.auth.admin.createUser({
           email,
-          password: String(student.student_code),
+          password: initialPassword(String(student.student_code)),
           email_confirm: true,
           app_metadata: { account_type: 'student', must_change_password: true },
           user_metadata: { display_name: student.student_name },

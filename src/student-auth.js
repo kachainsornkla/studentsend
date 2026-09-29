@@ -3,6 +3,11 @@ export function studentLoginEmail(studentCode) {
   return `s-${hex}@students.studentsend.invalid`
 }
 
+export function studentInitialPassword(studentCode) {
+  const code = String(studentCode).trim()
+  return code.length >= 6 ? code : `${code}${'#'.repeat(6 - code.length)}`
+}
+
 export function decodeVapidKey(value) {
   const base64 = value.replace(/-/g, '+').replace(/_/g, '/')
   const raw = window.atob(base64.padEnd(base64.length + ((4 - base64.length % 4) % 4), '='))

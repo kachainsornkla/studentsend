@@ -4,7 +4,7 @@ import { flushSync } from 'react-dom'
 import { Html5Qrcode } from 'html5-qrcode'
 import { QRCodeSVG } from 'qrcode.react'
 import { isSupabaseConfigured, supabase } from './supabase'
-import { decodeVapidKey, studentLoginEmail } from './student-auth'
+import { decodeVapidKey, studentInitialPassword, studentLoginEmail } from './student-auth'
 
 const statusNames = { pending: 'ยังไม่ส่ง', submitted: 'ส่งแล้ว', checking: 'รอตรวจ', checked: 'ตรวจแล้ว', returned: 'ส่งกลับแก้ไข', late: 'ส่งช้า' }
 const nav = [['dashboard', '▦', 'ภาพรวม'], ['students', '♙', 'นักเรียน'], ['assignments', '▤', 'งานและ QR'], ['scanner', '▣', 'สแกนรับงาน'], ['reports', '▥', 'รายงานและตรวจ']]
@@ -163,8 +163,11 @@ export default function App() {
     event.preventDefault(); setLoginBusy(true); setLoginError('')
     const form = new FormData(event.currentTarget)
     const identifier = String(form.get('identifier') || '').trim()
-    const email = identifier.includes('@') ? identifier : studentLoginEmail(identifier)
-    const { error } = await supabase.auth.signInWithPassword({ email, password: form.get('password') })
+    const isStudent = !identifier.includes('@')
+    const email = isStudent ? studentLoginEmail(identifier) : identifier
+    const suppliedPassword = String(form.get('password') || '')
+    const password = isStudent && suppliedPassword === identifier ? studentInitialPassword(identifier) : suppliedPassword
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) setLoginError(error.message)
     setLoginBusy(false)
   }
