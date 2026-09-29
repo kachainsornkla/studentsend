@@ -43,7 +43,7 @@ Sign in as staff, open **นักเรียน**, and select **สร้า�
 
 ## 5. Student access and notifications
 
-Students can view their pending, submitted, and checked work, upload a file or send a text note, review scores/comments, and display their QR code for physical hand-in. Files are stored in the private `student-submissions` bucket, with a 25 MB maximum.
+Students can view their pending, submitted, and checked work, take a photo with a phone/tablet camera, upload a file or send a text note, review scores/comments, and display their QR code for physical hand-in. Files are stored in the private `student-submissions` bucket, with a 25 MB maximum.
 
 Staff can reset a linked student's temporary password to the student code or set a temporary password of their choice from the student list. Supabase Auth does not reveal existing passwords; each reset marks the student to choose a new password (at least 8 characters) at next sign-in.
 

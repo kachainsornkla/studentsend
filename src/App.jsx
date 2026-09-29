@@ -519,6 +519,11 @@ function StudentSubmission({ row, onDone }) {
   const [error, setError] = useState('')
   const canSubmit = ['pending', 'returned'].includes(row.status)
 
+  function chooseFile(event) {
+    setFile(event.target.files?.[0] || null)
+    event.target.value = ''
+  }
+
   async function submit(event) {
     event.preventDefault(); setError('')
     if (!file && !note.trim()) return setError('เลือกไฟล์หรือเขียนข้อความก่อนส่ง')
@@ -542,7 +547,23 @@ function StudentSubmission({ row, onDone }) {
     finally { setBusy(false) }
   }
 
-  return <article className="rounded-xl border border-slate-200 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><span className="eyebrow">{row.assignments?.subject || 'งานที่ได้รับ'}</span><h3 className="m-0 text-sm font-bold">{row.assignments?.assignment_name || 'งาน'}</h3><p className="muted mt-1">{row.assignments?.assignment_code} · กำหนดส่ง {niceDate(row.assignments?.due_date)}</p></div><Pill value={row.status} /></div>{row.status === 'checked' && <div className="mt-3 rounded-lg bg-green-50 p-3 text-sm"><b>คะแนน {row.score ?? '—'} / {row.max_score ?? '—'}</b>{row.remark && <p className="mt-1 text-xs text-slate-700">{row.remark}</p>}</div>}{row.submission_note && <p className="mt-3 text-xs text-slate-600">ข้อความส่งงาน: {row.submission_note}</p>}{row.attachment_path && <div className="mt-3"><StudentWorkLink path={row.attachment_path} name={row.attachment_name || 'ไฟล์งาน'} /></div>}{canSubmit && <form className="mt-4 grid gap-3 border-t border-slate-100 pt-3" onSubmit={submit}><label className="grid gap-1 text-xs font-semibold">แนบไฟล์ รูปภาพ, PDF หรือเอกสาร<input className="field" type="file" accept="image/*,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt" onChange={event => setFile(event.target.files?.[0] || null)} /></label>{file && <p className="muted">เลือกแล้ว: {file.name} · {(file.size / 1048576).toFixed(1)} MB</p>}<label className="grid gap-1 text-xs font-semibold">ข้อความถึงครู<textarea className="field" rows="2" value={note} onChange={event => setNote(event.target.value)} placeholder="หมายเหตุหรือส่งคำตอบเป็นข้อความ" /></label>{error && <p className="text-xs text-red-600">{error}</p>}<button className="primary justify-self-start" disabled={busy}>{busy ? 'กำลังส่ง…' : row.status === 'returned' ? 'ส่งแก้ไขให้ครู' : 'ส่งงานให้ครูตรวจ'}</button></form>}{!canSubmit && row.submitted_at && <p className="muted mt-3">ส่งเมื่อ {niceDate(row.submitted_at)}{row.checked_at ? ` · ตรวจเมื่อ ${niceDate(row.checked_at)}` : ''}</p>}</article>
+  return <article className="rounded-xl border border-slate-200 p-4">
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><span className="eyebrow">{row.assignments?.subject || 'งานที่ได้รับ'}</span><h3 className="m-0 text-sm font-bold">{row.assignments?.assignment_name || 'งาน'}</h3><p className="muted mt-1">{row.assignments?.assignment_code} · กำหนดส่ง {niceDate(row.assignments?.due_date)}</p></div><Pill value={row.status} /></div>
+    {row.status === 'checked' && <div className="mt-3 rounded-lg bg-green-50 p-3 text-sm"><b>คะแนน {row.score ?? '—'} / {row.max_score ?? '—'}</b>{row.remark && <p className="mt-1 text-xs text-slate-700">{row.remark}</p>}</div>}
+    {row.submission_note && <p className="mt-3 text-xs text-slate-600">ข้อความส่งงาน: {row.submission_note}</p>}
+    {row.attachment_path && <div className="mt-3"><StudentWorkLink path={row.attachment_path} name={row.attachment_name || 'ไฟล์งาน'} /></div>}
+    {canSubmit && <form className="mt-4 grid gap-3 border-t border-slate-100 pt-3" onSubmit={submit}>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="grid gap-1 text-xs font-semibold">ถ่ายภาพงานด้วยกล้อง<input className="field" type="file" accept="image/*" capture="environment" onChange={chooseFile} /></label>
+        <label className="grid gap-1 text-xs font-semibold">เลือกไฟล์จากอุปกรณ์<input className="field" type="file" accept="image/*,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt" onChange={chooseFile} /></label>
+      </div>
+      {file && <p className="muted">ไฟล์ที่เลือก: {file.name} · {(file.size / 1048576).toFixed(1)} MB</p>}
+      <label className="grid gap-1 text-xs font-semibold">ข้อความถึงครู<textarea className="field" rows="2" value={note} onChange={event => setNote(event.target.value)} placeholder="หมายเหตุหรือส่งคำตอบเป็นข้อความ" /></label>
+      {error && <p className="text-xs text-red-600">{error}</p>}
+      <button className="primary justify-self-start" disabled={busy}>{busy ? 'กำลังส่ง…' : row.status === 'returned' ? 'ส่งแก้ไขให้ครู' : 'ส่งงานให้ครูตรวจ'}</button>
+    </form>}
+    {!canSubmit && row.submitted_at && <p className="muted mt-3">ส่งเมื่อ {niceDate(row.submitted_at)}{row.checked_at ? ` · ตรวจเมื่อ ${niceDate(row.checked_at)}` : ''}</p>}
+  </article>
 }
 
 function StudentWorkLink({ path, name }) {
