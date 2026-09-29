@@ -11,6 +11,15 @@ const emptyStudent = { student_code: '', student_name: '', class_name: '', stude
 const emptyAssignment = { assignment_code: '', assignment_name: '', subject: '', description: '', due_date: '', status: 'active' }
 const msg = error => error?.message || 'เกิดข้อผิดพลาด'
 const niceDate = value => value ? new Date(value).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }) : '—'
+async function fetchPages(queryForRange) {
+  const pageSize = 1000; const rows = []
+  for (let start = 0; ; start += pageSize) {
+    const { data, error } = await queryForRange(start, start + pageSize - 1)
+    if (error) throw error
+    rows.push(...(data || []))
+    if (!data || data.length < pageSize) return rows
+  }
+}
 
 export default function App() {
   const [session, setSession] = useState(null)
@@ -63,15 +72,15 @@ export default function App() {
   const loadAll = useCallback(async () => {
     if (!session?.user || !profile || profile.error || !profile.active) return
     setBusy(true)
-    const [s, a, sub] = await Promise.all([
-      supabase.from('students').select('*').order('class_name').order('student_number').limit(1000),
-      supabase.from('assignments').select('*').order('created_at', { ascending: false }).limit(500),
-      supabase.from('submissions').select('*,students(id,student_code,student_name,class_name,student_number,status),assignments(id,assignment_code,assignment_name,subject,due_date,status)').order('updated_at', { ascending: false }).limit(10000),
-    ])
-    const error = s.error || a.error || sub.error
-    if (error) notify(msg(error))
-    setStudents(s.data || []); setAssignments(a.data || []); setSubmissions(sub.data || [])
-    setBusy(false)
+    try {
+      const [studentRows, assignmentRows, submissionRows] = await Promise.all([
+        fetchPages((from, to) => supabase.from('students').select('*').order('class_name').order('student_number').order('id').range(from, to)),
+        fetchPages((from, to) => supabase.from('assignments').select('*').order('created_at', { ascending: false }).order('id').range(from, to)),
+        fetchPages((from, to) => supabase.from('submissions').select('*,students(id,student_code,student_name,class_name,student_number,status),assignments(id,assignment_code,assignment_name,subject,due_date,status)').order('id').range(from, to)),
+      ])
+      setStudents(studentRows); setAssignments(assignmentRows); setSubmissions(submissionRows)
+    } catch (error) { notify(msg(error)) }
+    finally { setBusy(false) }
   }, [session, profile, notify])
 
   useEffect(() => { loadAll() }, [loadAll])
