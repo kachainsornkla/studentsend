@@ -6,6 +6,8 @@ The student portal adds account-based access to each student's own work, digital
 
 The existing project must already have `supabase/schema.sql` installed. In Supabase Dashboard, open **SQL Editor**, paste the full contents of `supabase/student-portal.sql`, and run it once. It adds student/Auth links, work attachment fields, private file storage, student-only RLS policies, the submission RPC, and Realtime publication membership.
 
+Then run `supabase/student-profile-onboarding.sql`. It adds the required student nickname and private face-photo profile fields and the secure RPC/storage policies used during first-time profile setup after the student changes their initial password.
+
 ## 2. Deploy the Edge Functions
 
 Install and authenticate the Supabase CLI, then link the existing project:

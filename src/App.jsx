@@ -131,9 +131,9 @@ export default function App() {
     let alive = true
     if (!session?.user) { setProfile(null); return }
     if (session.user.app_metadata?.account_type === 'student') {
-      supabase.from('students').select('id,auth_user_id,student_code,student_name,class_name,student_number,qr_token,status')
+      supabase.from('students').select('id,auth_user_id,student_code,student_name,student_nickname,face_photo_path,profile_completed_at,class_name,student_number,qr_token,status')
         .eq('auth_user_id', session.user.id).maybeSingle()
-        .then(({ data, error }) => { if (alive) setProfile(error ? { error: error.message } : data ? { ...data, role: 'student', display_name: data.student_name, active: data.status === 'active', must_change_password: session.user.app_metadata?.must_change_password === true } : { error: 'ไม่พบบัญชีนักเรียนที่เชื่อมโยงกับผู้ใช้นี้' }) })
+        .then(({ data, error }) => { if (alive) setProfile(error ? { error: error.message } : data ? { ...data, role: 'student', display_name: data.student_nickname || data.student_name, active: data.status === 'active', must_change_password: session.user.app_metadata?.must_change_password === true } : { error: 'ไม่พบบัญชีนักเรียนที่เชื่อมโยงกับผู้ใช้นี้' }) })
     } else {
       supabase.from('app_users').select('display_name,role,active').eq('user_id', session.user.id).maybeSingle()
         .then(({ data, error }) => { if (alive) setProfile(error ? { error: error.message } : data) })
@@ -142,6 +142,13 @@ export default function App() {
   }, [session])
 
   const notify = useCallback(text => { setToast(text); window.setTimeout(() => setToast(''), 3000) }, [])
+
+  async function refreshStudentProfile() {
+    const { data, error } = await supabase.from('students').select('id,auth_user_id,student_code,student_name,student_nickname,face_photo_path,profile_completed_at,class_name,student_number,qr_token,status').eq('auth_user_id', session.user.id).maybeSingle()
+    if (error) throw error
+    if (!data) throw new Error('ไม่พบข้อมูลนักเรียน')
+    setProfile({ ...data, role: 'student', display_name: data.student_nickname || data.student_name, active: data.status === 'active', must_change_password: false })
+  }
 
   const loadAll = useCallback(async () => {
     if (!session?.user || !profile || profile.role === 'student' || profile.error || !profile.active) return
@@ -382,6 +389,7 @@ export default function App() {
   if (!profile) return <div className="grid min-h-screen place-items-center text-sm text-slate-500">กำลังโหลดข้อมูลบัญชี…</div>
   if (profile.error || !profile.active) return <div className="grid min-h-screen place-items-center p-6"><div className="panel max-w-lg p-7 text-center"><h1 className="mb-2 text-xl font-bold">บัญชียังไม่ได้รับสิทธิ์ใช้งาน</h1><p className="muted mb-5">{session.user.app_metadata?.account_type === 'student' ? 'บัญชีนักเรียนนี้ถูกปิดใช้งานหรือยังไม่ได้เชื่อมกับรายชื่อ' : <>เพิ่ม UUID บัญชีนี้ในตาราง <code>public.app_users</code> ผ่าน SQL Editor ของ Supabase</>}</p><button className="primary" onClick={signOut}>ออกจากระบบ</button></div></div>
   if (profile.role === 'student' && profile.must_change_password) return <ChangeStudentPassword onSave={changeStudentPassword} />
+  if (profile.role === 'student' && (!profile.profile_completed_at || !profile.student_nickname || !profile.face_photo_path)) return <StudentProfileSetup profile={profile} userId={session.user.id} onComplete={refreshStudentProfile} onSignOut={signOut} />
   if (profile.role === 'student') return <StudentPortal profile={profile} userId={session.user.id} onSignOut={signOut} notify={notify} />
 
   return <div className="min-h-screen">
@@ -426,6 +434,44 @@ function ChangeStudentPassword({ onSave }) {
     finally { setBusy(false) }
   }
   return <div className="login-shell"><form className="login-card" onSubmit={submit}><span className="brand-mark mb-5">S</span><p className="eyebrow">FIRST SIGN-IN</p><h1 className="mb-2 text-2xl font-bold">ตั้งรหัสผ่านใหม่</h1><p className="muted mb-5">เพื่อความปลอดภัย กรุณาเปลี่ยนรหัสผ่านเริ่มต้นก่อนใช้งาน</p><label className="mb-3 grid gap-2 text-xs font-semibold">รหัสผ่านใหม่<input className="field" type="password" name="password" minLength="8" required autoComplete="new-password" /></label><label className="mb-4 grid gap-2 text-xs font-semibold">ยืนยันรหัสผ่าน<input className="field" type="password" name="confirm" minLength="8" required autoComplete="new-password" /></label>{error && <p className="mb-3 text-xs text-red-600">{error}</p>}<button className="primary w-full" disabled={busy}>{busy ? 'กำลังบันทึก…' : 'ตั้งรหัสผ่านและออกจากระบบ'}</button></form></div>
+}
+
+function StudentProfileSetup({ profile, userId, onComplete, onSignOut }) {
+  const [nickname, setNickname] = useState(profile.student_nickname || '')
+  const [photo, setPhoto] = useState(null)
+  const [preview, setPreview] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    if (!photo) { setPreview(''); return }
+    const url = URL.createObjectURL(photo); setPreview(url)
+    return () => URL.revokeObjectURL(url)
+  }, [photo])
+
+  async function submit(event) {
+    event.preventDefault(); setError('')
+    const cleanNickname = nickname.trim()
+    if (!cleanNickname) return setError('กรุณากรอกชื่อเล่น')
+    if (!photo) return setError('กรุณาถ่ายหรือเลือกรูปใบหน้าของนักเรียน')
+    if (!photo.type.startsWith('image/')) return setError('ไฟล์ต้องเป็นรูปภาพ')
+    if (photo.size > 5 * 1024 * 1024) return setError('รูปต้องมีขนาดไม่เกิน 5 MB')
+    setBusy(true)
+    let path = null
+    try {
+      const ext = photo.name.includes('.') ? photo.name.split('.').pop().toLowerCase().replace(/[^a-z0-9]/g, '') : 'jpg'
+      path = `${userId}/face-${crypto.randomUUID()}.${ext || 'jpg'}`
+      const { error: uploadError } = await supabase.storage.from('student-profiles').upload(path, photo, { contentType: photo.type, upsert: false })
+      if (uploadError) throw uploadError
+      const { error: saveError } = await supabase.rpc('complete_student_profile', { p_nickname: cleanNickname, p_photo_path: path })
+      if (saveError) throw saveError
+      await onComplete()
+    } catch (cause) {
+      if (path) { try { await supabase.storage.from('student-profiles').remove([path]) } catch { /* Keep the original save error visible. */ } }
+      setError(msg(cause))
+    } finally { setBusy(false) }
+  }
+
+  return <div className="login-shell"><form className="login-card !max-w-lg" onSubmit={submit}><span className="brand-mark mb-5">S</span><p className="eyebrow">STUDENT PROFILE</p><h1 className="mb-2 text-2xl font-bold">ตั้งค่าโปรไฟล์ก่อนเริ่มใช้</h1><p className="muted mb-5">กรุณาใส่ชื่อเล่นและแนบรูปใบหน้าของตนเอง ขั้นตอนนี้ทำครั้งเดียวหลังเปลี่ยนรหัสผ่านครั้งแรก</p><label className="mb-4 grid gap-2 text-xs font-semibold">ชื่อเล่น<input className="field" required maxLength="40" value={nickname} onChange={event => setNickname(event.target.value)} placeholder="ชื่อเล่นของฉัน" /></label><div className="mb-4 grid gap-3 sm:grid-cols-2"><label className="grid gap-2 text-xs font-semibold">ถ่ายใบหน้าด้วยกล้องหน้า<input className="field" type="file" accept="image/*" capture="user" onChange={event => setPhoto(event.target.files?.[0] || null)} /></label><label className="grid gap-2 text-xs font-semibold">หรือเลือกรูปจากอุปกรณ์<input className="field" type="file" accept="image/*" onChange={event => setPhoto(event.target.files?.[0] || null)} /></label></div>{preview && <div className="mb-4 grid justify-items-center gap-2 rounded-xl bg-slate-50 p-3"><img className="h-36 w-36 rounded-full object-cover" src={preview} alt="ตัวอย่างรูปใบหน้า" /><span className="text-xs text-slate-500">{photo?.name}</span></div>}{error && <p className="mb-3 text-xs text-red-600">{error}</p>}<button className="primary w-full" disabled={busy}>{busy ? 'กำลังบันทึกโปรไฟล์…' : 'บันทึกและเริ่มใช้งาน'}</button><button type="button" className="secondary mt-2 w-full" onClick={onSignOut} disabled={busy}>ออกจากระบบ</button></form></div>
 }
 
 function StudentPortal({ profile, userId, onSignOut, notify }) {
@@ -527,7 +573,7 @@ function StudentPortal({ profile, userId, onSignOut, notify }) {
   const totalMax = checked.reduce((sum, row) => sum + Number(row.max_score || 0), 0)
   const filtered = rows.filter(row => filter === 'all' || (filter === 'pending' ? ['pending', 'returned'].includes(row.status) : filter === 'checked' ? row.status === 'checked' : ['submitted', 'checking', 'late'].includes(row.status)))
 
-  return <div className="min-h-screen"><header className="topbar !ml-0"><div><span className="eyebrow">STUDENT PORTAL</span><strong>สวัสดี {profile.student_name}</strong></div><button className="secondary" onClick={onSignOut}>ออกจากระบบ</button></header><main className="mx-auto grid max-w-5xl gap-4 p-4 sm:p-6">
+  return <div className="min-h-screen"><header className="topbar !ml-0"><div><span className="eyebrow">STUDENT PORTAL</span><strong>สวัสดี {profile.student_nickname || profile.student_name}</strong></div><button className="secondary" onClick={onSignOut}>ออกจากระบบ</button></header><main className="mx-auto grid max-w-5xl gap-4 p-4 sm:p-6">
     {banner && <div className="flex items-center justify-between rounded-xl bg-teal-700 p-4 text-sm font-semibold text-white shadow-lg" role="status"><span>🔔 {banner}</span><button onClick={() => setBanner('')} aria-label="ปิดแบนเนอร์">×</button></div>}
     <section className="grid grid-cols-2 gap-3 sm:grid-cols-4"><StudentStat label="งานที่ได้รับ" value={rows.length} /><StudentStat label="ค้างส่ง" value={pending} /><StudentStat label="ตรวจแล้ว" value={checked.length} /><StudentStat label="คะแนนรวม" value={`${totalScore} / ${totalMax}`} /></section>
     <section className="panel p-4 sm:p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="m-0 text-base font-bold">ส่งงานด้วย QR</h2><p className="muted mt-1">แสดง QR นี้ให้ครูสแกนเมื่อนำงานมาส่ง</p></div><button className="secondary" onClick={() => setShowQr(!showQr)}>{showQr ? 'ซ่อน QR' : 'แสดง QR ของฉัน'}</button></div>{showQr && <div className="mt-4 grid justify-items-center gap-2 rounded-lg bg-slate-50 p-4"><QRCodeSVG value={`STU:${profile.qr_token}`} size={190} /><b>{profile.student_code} · {profile.student_name}</b></div>}</section>
