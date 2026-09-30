@@ -17,6 +17,8 @@ insert into public.courses(course_code, course_name) values
   ('SO101', 'สังคมศึกษา')
 on conflict (course_name) do nothing;
 
+alter table public.courses add column if not exists class_name varchar(100);
+
 alter table public.students add column if not exists course_id bigint references public.courses(id) on delete restrict;
 alter table public.assignments add column if not exists course_id bigint references public.courses(id) on delete restrict;
 create index if not exists students_course_id_idx on public.students(course_id);
@@ -77,4 +79,3 @@ create policy "Active staff can manage courses" on public.courses
 for all to authenticated
 using ((select public.is_active_staff()))
 with check ((select public.is_active_staff()));
-
